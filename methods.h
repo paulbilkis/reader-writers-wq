@@ -5,4 +5,6 @@
 #define READ_QUEUE "/readers_queue"
 #define WRITE_QUEUE "/writers_queue"
 #define MAP_LENGTH 4096
+#define SHARED_FILE "/home/bilkis/shared_file"
+#define WAITING_CONSTANT 20
 

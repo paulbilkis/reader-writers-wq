@@ -25,9 +25,10 @@ void stop_process (int sig){
 int main (int argc, char **argv){
   sem_t *main_sem;
   mqd_t read_queue,write_queue;
-  int test_msg = 0, i, num_of_readers = 1;
+  int i, num_of_readers = 1;
   pid_t *child_pid;
-
+  char data[4096], *pages;
+  printf("RAND_MAX = %ld\n", RAND_MAX);
   if(argc > 1){
     num_of_readers = atoi(argv[1]);
   }
@@ -68,8 +69,25 @@ int main (int argc, char **argv){
     sem_post(main_sem);
     return 0;
   }
+
+   printf("Mapping file to shared memory!\n");
+  int file = open(SHARED_FILE, O_CREAT | O_RDWR, 0666);
+  if(file == -1){
+    printf("Error when open shared file: %s\n", strerror(errno));
+    sem_post(main_sem);
+    return 0;
+  }
+  
+  pages = mmap(NULL, NUM_OF_PAGES*4096, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
+  
+  if (pages == MAP_FAILED){
+    printf("Error when mmap working pages: %s\n", strerror(errno));
+    sem_post(main_sem);
+    return 0;
+  }
   
   sem_post(main_sem);
+  
   signal(SIGUSR1,stop_process);
   pid_t pid;
   for (i = 0; i < num_of_readers; i++){
@@ -92,40 +110,37 @@ int main (int argc, char **argv){
     unsigned pri = 1;
     int lock_id;
     ssize_t rc;
-    struct timespec work_time = {2,0}, time_meas;
+    struct timespec work_time = {0,(rand() % (1500000000) + 500000000)}, time_meas;
     char log_name[255];
     sprintf(log_name, "reader-%d.log", getpid());
     FILE* log = fopen(log_name, "w+");
-    fprintf(log, "FDLJDJFLDF\n");
+
     while(!received){
       rc = mq_receive(read_queue, (char*)&lock_id, sizeof(int), &pri);
       clock_gettime(CLOCK_REALTIME, &time_meas);
-      fprintf(log, "PID %d, waiting to read page #%d, time: %ld \n", getpid(), lock_id, time_meas.tv_sec*1000000000 + time_meas.tv_nsec);
+      fprintf(log, "PID%d %d %ld\n", getpid(), lock_id*4+1, time_meas.tv_sec*1000000000 + time_meas.tv_nsec);
       sem_wait(&sem[lock_id]);
       clock_gettime(CLOCK_REALTIME, &time_meas);
-      fprintf(log, "PID %d, reading page #%d, time: %ld \n", getpid(), lock_id, time_meas.tv_sec*1000000000 + time_meas.tv_nsec);
+      fprintf(log, "PID%d %d %ld\n", getpid(), lock_id*4+2, time_meas.tv_sec*1000000000 + time_meas.tv_nsec);
+      // fprintf(log, "PID %d, reading page #%d, time: %ld \n", getpid(), lock_id, time_meas.tv_sec*1000000000 + time_meas.tv_nsec);
+      memcpy(data, pages+4096*lock_id, 4096);
       nanosleep(&work_time, NULL);
       sem_post(&sem[lock_id]);
       clock_gettime(CLOCK_REALTIME, &time_meas);
-      fprintf(log, "PID %d, realising page #%d, time: %ld \n", getpid(), lock_id, time_meas.tv_sec*1000000000 + time_meas.tv_nsec);
+      fprintf(log, "PID%d %d %ld\n", getpid(), lock_id*4+3, time_meas.tv_sec*1000000000 + time_meas.tv_nsec);
+      //fprintf(log, "PID %d, realising page #%d, time: %ld \n", getpid(), lock_id, time_meas.tv_sec*1000000000 + time_meas.tv_nsec);
       mq_send(write_queue, (char*)&lock_id, sizeof(int), 1);
     }
+    
     fclose(log);
     return 0;
     
   }else{
-
-    //mq_send(read_queue, (char*)&test_msg, sizeof(int), 1);
-
+    sleep(WAITING_CONSTANT);
+    for (i = 0; i<num_of_readers; i++)
+      kill(child_pid[i], SIGUSR1);
+    mq_unlink(READ_QUEUE);
+    mq_unlink(WRITE_QUEUE);
+    return 0;
   }
-  
-  sleep(10);
-  for (i = 0; i<num_of_readers; i++)
-    kill(child_pid[i], SIGUSR1);
-  //  unsigned pri = 1;
-  // ssize_t rc = mq_receive(read_queue, (char*)&test_msg, sizeof(int), &pri);
-  //printf("Receive message: %d, %d bytes\n", test_msg, rc);
-  mq_unlink(READ_QUEUE);
-  mq_unlink(WRITE_QUEUE);
-  return 0;
 }
